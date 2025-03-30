@@ -4,6 +4,7 @@ import sys
 import os
 import argparse
 import re
+import time
 
 # 1MB buffer size
 BUFFER_SIZE = 1000000
@@ -105,7 +106,8 @@ while True:
     cacheLocation = './' + hostname + resource
     if cacheLocation.endswith('/'):
         cacheLocation = cacheLocation + 'default'
-
+  
+    #Metalocation = cachelocation + meta
     print ('Cache location:\t\t' + cacheLocation)
 
     fileExists = os.path.isfile(cacheLocation)
@@ -113,6 +115,20 @@ while True:
     # Check wether the file is currently in the cache
     cacheFile = open(cacheLocation, "r")
     cacheData = cacheFile.readlines()
+    cache_strings = ''.join(cacheData)
+
+    #Check the cache if it is overtime
+    cache_control_match = re.search(r'Cache-Control:.*?max-age=(\d+)', cache_strings, re.IGNORECASE)
+    max_age = int(cache_control_match.group(1)) if cache_control_match else None
+    mod_time = os.path.getmtime(cacheLocation) #Return the last modification time of a file by ostat()
+
+    survive = time.time() - mod_time # survive time =the time of system - cache begin time
+    print(f"The cachefile time is: {int(survive)} seconds")
+
+    if age > max_age:
+      print("The cachefile is expired")
+      raise Exception("There is Error with cachefile")
+
 
     print ('Cache hit! Loading from cache file: ' + cacheLocation)
     # ProxyServer finds a cache hit
@@ -123,7 +139,8 @@ while True:
     # ~~~~ END CODE INSERT ~~~~
     cacheFile.close()
     print ('Sent to the client:')
-    print ('> ' + cacheData)
+    print ('> ' + cache_strings)
+    
   except:
     # cache miss.  Get resource from origin server
     originServerSocket = None
@@ -180,19 +197,33 @@ while True:
       clientSocket.sendall(originRes) #Send all the responses to client
       # ~~~~ END CODE INSERT ~~~~
 
-      # Create a new file in the cache for the requested file.
-      cacheDir, file = os.path.split(cacheLocation)
-      print ('cached directory ' + cacheDir)
-      if not os.path.exists(cacheDir):
-        os.makedirs(cacheDir)
-      cacheFile = open(cacheLocation, 'wb')
 
-      # Save origin server response in the cache file
-      # ~~~~ INSERT CODE ~~~~
-      cacheFile.write(originRes) #Save the res
-      # ~~~~ END CODE INSERT ~~~~
-      cacheFile.close()
-      print ('cache file closed')
+      #Determine if it should be cached
+      res_strings = originRes.decode('ISO-8859-1')
+
+      #Find in the res_string if there is any cache control, it must not be cached
+      shouldNot_store = re.search(r'Cache-Control:\s*no-store', res_strings, re.IGNORECASE)
+
+      #The logic of no-store 
+      should_store = True
+      if shouldNot_store:
+        should_store = False
+        print("The response should not be cached")
+
+      # Create a new file in the cache for the requested file.
+      if should_store:
+        cacheDir, file = os.path.split(cacheLocation)
+        print ('cached directory ' + cacheDir)
+        if not os.path.exists(cacheDir):
+          os.makedirs(cacheDir)
+        cacheFile = open(cacheLocation, 'wb')
+
+        # Save origin server response in the cache file
+        # ~~~~ INSERT CODE ~~~~
+        cacheFile.write(originRes) #Save the res
+        # ~~~~ END CODE INSERT ~~~~
+        cacheFile.close()
+        print ('cache file closed')
 
       # finished communicating with origin server - shutdown socket writes
       print ('origin response received. Closing sockets')
